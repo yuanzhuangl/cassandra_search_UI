@@ -5,6 +5,7 @@ from cassandra.policies import DCAwareRoundRobinPolicy
 from cassandra.auth import PlainTextAuthProvider
 from flask import Flask
 from flask import request
+import time
 
 ##############################################################################################################
 #                               connect to cassandra cluster bycassandra-driver                              #
@@ -26,14 +27,16 @@ def connect_cassandra():
 ##############################################################################################################
 def search_cassandra(cluster,keyspace,query):
     session = cluster.connect(keyspace)
-    print('Connected to cluster %s' % cluster.metadata.cluster_name)
+    #print('Connected to cluster %s' % cluster.metadata.cluster_name)
     session.execute('USE %s;' % keyspace)
     session.row_factory = cassandra.query.tuple_factory
-
-    result = session.execute(query)
+    try:
+        result = session.execute(query)
 #   for host in cluster.metadata.all_hosts():
 #       print ('Datacenter: %s; Host: %s; Rack: %s' % (host.datacenter, host.address, host.rack))
 #   cluster.shutdown()
+    except cassandra.protocol.SyntaxException:
+        result = ["Syntax error in CQL query"]
     return result
 
 
@@ -41,20 +44,97 @@ def search_cassandra(cluster,keyspace,query):
 #                               parse query results to html-readable type                                    #
 ##############################################################################################################
 def result_parse(result_set):
-    result = '''<table  id="table" width="100%" border="2"><tr><td>dc_key</td><td>dc_dist</td><td>dispatch_date</td><td>dispatch_time</td><td>
-                hour</td><td>lat</td><td>location_block</td><td>lon</td><td>month</td><td>
-                police_districts</td><td>psa</td><td>text_general_code</td><td>ucr_general</td></tr>'''#header of final table
-    for line in result_set:
-        line = '</td><td>'.join(str(x) for x in line)
-        result += "<tr><td>%s</td></tr>"%line
-#   print (result)
+    #print(result_set)
+    if result_set == ['Syntax error in CQL query']:
+        result = '''Syntax&nbsperror&nbspin&nbspCQL&nbspquery.'''
+    else:
+        result = '''<table  id="table" width="100%" border="2"><tr><td>dc_key</td><td>dc_dist</td><td>dispatch_date</td><td>dispatch_time</td><td>
+                    hour</td><td>lat</td><td>location_block</td><td>lon</td><td>month</td><td>
+                    police_districts</td><td>psa</td><td>text_general_code</td><td>ucr_general</td></tr>'''#header of final table
+        for line in result_set:
+            line = '</td><td>'.join(str(x) for x in line)
+            result += "<tr><td>%s</td></tr>"%line
     return result
+
 
 ##############################################################################################################
 #                                         create the web page                                                #
 ##############################################################################################################
-app = Flask(__name__)
-@app.route('/', methods=['GET'])
+#design html for result page
+def result_page_design(query_criteria,result,elapsed_time):
+    return'''<form action="/" method="post">
+            <head>
+                <style>
+                #header {
+                    background-color:black;
+                    color:white;
+                    text-align:center;
+                    padding:5px;
+                }
+                #nav {
+                    line-height:20px;
+                    font-family:verdana;
+                    background-color:#eeeeee;
+                    text-align:center;
+                    font-family:verdana;
+                    font-size:20px;
+                    color:grey;
+                    height:auto!important;
+                    height:450px;
+                    min-height:450px;
+                    width:100%;
+                    padding:5px;
+                }
+                #table{
+                background-color:white;
+                text-align:center;
+                font-size:12px;
+                line-height:40px;
+                padding:5px;
+                }
+                #button {
+                    font-family:verdana;
+                    background-color:#eeeeee;
+                    clear:both;
+                    text-align:center;
+                    padding:5px;
+                    height:50px;
+                    line-height:50px;
+                }
+                #footer {
+                    background-color:black;
+                    color:white;
+                    clear:both;
+                    text-align:center;
+                    padding:5px;
+                }
+                </style>
+            </head>
+                <body>
+                    <div id="header">
+                        <h1>Crime Search</h1>
+                    </div>
+                    <div id="nav">
+                        '''+ query_criteria +'''
+
+                         '''+ elapsed_time +'''
+                        </p>
+                        '''+result+'''
+                        </table>
+                    </div>
+                    <div style="clear:both"></div>
+                    <div id="button">
+                        <a href="/";”>Back and search more</a>
+                    </div>
+                    <div id="footer">
+                        Copyright >> Yuan Zhuang-yn770354@dal.ca
+                    </div>
+                </body>
+            </form>'''
+
+
+application = Flask(__name__)
+@application.route('/', methods=['GET'])
 def home():
     #design search page
     return '''<form action="/" method="post">
@@ -152,7 +232,7 @@ def home():
 
 
 
-@app.route('/', methods=['POST'])
+@application.route('/', methods=['POST'])
 def query():
     # specify text type
     raw_query_items_1 = ['Dc_Dist', 'Hour', 'UCR_General', 'Police_Districts']
@@ -168,83 +248,47 @@ def query():
                query_criteria.append(" %s = \'%s\' and" % (item, request.form[item]))
     query_text = ''.join(query_criteria)
     query_text = query_text[:-3]
-    query_criteria = query_text
+    query_criteria = '''<p style="font-family:verdana">
+                            Search criteria :'''+ query_text+ '''</p>'''
+
     query_text = "SELECT * FROM crime WHERE %s ALLOW FILTERING;" % query_text
 
     # connect cluster and implement search function
     cluster = connect_cassandra()
+    start_time = time.time()
     result = search_cassandra(cluster,"cassandra_community",query_text)
-    #print("result = ", result)
+    stop_time = time.time()
+    elapsed_time = '''<p style="font-family:verdana">
+                            Elapsed time :'''+str(stop_time - start_time)+'''</p>'''
 
-    #design result page
-    return '''<form action="/" method="post">
-            <head>
-                <style>
-                #header {
-                    background-color:black;
-                    color:white;
-                    text-align:center;
-                    padding:5px;
-                }
-                #nav {
-                    line-height:20px;
-                    font-family:verdana;
-                    background-color:#eeeeee;
-                    text-align:center;
-                    font-family:verdana;
-                    font-size:20px;
-                    color:grey;
-                    height:auto!important;
-                    height:450px;
-                    min-height:450px;
-                    width:100%;
-                    padding:5px;
-                }
-                #table{
-                background-color:white;
-                text-align:center;
-                font-size:12px;
-                line-height:40px;
-                padding:5px;
-                }
-                #button {
-                    font-family:verdana;
-                    background-color:#eeeeee;
-                    clear:both;
-                    text-align:center;
-                    padding:5px;
-                    height:50px;
-                    line-height:50px;
-                }
-                #footer {
-                    background-color:black;
-                    color:white;
-                    clear:both;
-                    text-align:center;
-                    padding:5px;
-                }
-                </style>
-            </head>
-                <body>
-                    <div id="header">
-                        <h1>Crime Search</h1>
-                    </div>
-                    <div id="nav">
-                        <p style="font-family:verdana">
-                            Search criteria : '''+ query_criteria +'''
-                        </p>
-                        '''+result_parse(result)+'''
-                        </table>
-                    </div>
-                    <div style="clear:both"></div>
-                    <div id="button">
-                        <a href="" onClick=”javascript :history.back(-1);”>Back and search more</a>
-                    </div>
-                    <div id="footer">
-                        Copyright >> Yuan Zhuang-yn770354@dal.ca
-                    </div>
-                </body>
-            </form>'''
+    #transmit result to web page
+    return (result_page_design(query_criteria,result_parse(result),elapsed_time))
+
+#Restful design
+@application.route('/<query_criteria>', methods=['GET'])
+def query1(query_criteria):
+    query_text = "SELECT * FROM crime WHERE %s ALLOW FILTERING;" % query_criteria
+    # connect cluster and implement search function
+    cluster = connect_cassandra()
+    start_time = time.time()
+    result = search_cassandra(cluster, "cassandra_community", query_text)
+    query_criteria = '''<p style="font-family:verdana">
+                                Search criteria :''' + query_text + '''</p>'''
+    stop_time = time.time()
+    elapsed_time = '''<p style="font-family:verdana">
+                                Elapsed time :''' + str(stop_time - start_time) + '''</p>'''
+    #print("result = ", result)
+    return (result_page_design(query_criteria, result_parse(result), elapsed_time))
+
+
+@application.errorhandler(400)
+def handle_invalid_usage(error):
+    return (result_page_design('','<h1>Bad Request 400</h1>','')),400
+
+@application.errorhandler(500)
+def internal_error(error):
+    return (result_page_design('','<h1>Bad Request 500</h1>','')), 500
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0')
+    application.run(host='0.0.0.0')
