@@ -48,12 +48,16 @@ def result_parse(result_set):
     if result_set == ['Syntax error in CQL query']:
         result = '''Syntax&nbsperror&nbspin&nbspCQL&nbspquery.'''
     else:
+        amount = 0
         result = '''<table  id="table" width="100%" border="2"><tr><td>dc_key</td><td>dc_dist</td><td>dispatch_date</td><td>dispatch_time</td><td>
                     hour</td><td>lat</td><td>location_block</td><td>lon</td><td>month</td><td>
                     police_districts</td><td>psa</td><td>text_general_code</td><td>ucr_general</td></tr>'''#header of final table
         for line in result_set:
+            amount += 1
             line = '</td><td>'.join(str(x) for x in line)
             result += "<tr><td>%s</td></tr>"%line
+        result = '''<p style="font-family:verdana">
+                                Amount :''' + str(amount) + '''</p>''' +result
     return result
 
 
@@ -248,11 +252,10 @@ def query():
                query_criteria.append(" %s = \'%s\' and" % (item, request.form[item]))
     query_text = ''.join(query_criteria)
     query_text = query_text[:-3]
+
     query_criteria = '''<p style="font-family:verdana">
-                            Search criteria :'''+ query_text+ '''</p>'''
-
+                                Query criteria :''' + query_text + '''</p>'''
     query_text = "SELECT * FROM crime WHERE %s ALLOW FILTERING;" % query_text
-
     # connect cluster and implement search function
     cluster = connect_cassandra()
     start_time = time.time()
@@ -272,13 +275,13 @@ def query1(query_criteria):
     cluster = connect_cassandra()
     start_time = time.time()
     result = search_cassandra(cluster, "cassandra_community", query_text)
-    query_criteria = '''<p style="font-family:verdana">
-                                Search criteria :''' + query_text + '''</p>'''
+    query_criteria_ = '''<p style="font-family:verdana">
+                                Query criteria :''' + query_criteria + '''</p>'''
     stop_time = time.time()
     elapsed_time = '''<p style="font-family:verdana">
                                 Elapsed time :''' + str(stop_time - start_time) + '''</p>'''
     #print("result = ", result)
-    return (result_page_design(query_criteria, result_parse(result), elapsed_time))
+    return (result_page_design(query_criteria_, result_parse(result), elapsed_time))
 
 
 @application.errorhandler(400)
